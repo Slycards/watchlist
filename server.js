@@ -53,34 +53,61 @@ function daysAgo(n) {
 
 // ---- Statcast: fetch the expected-stats leaderboard once/day, index by id --
 // Savant returns JSON keyed by player_id (MLBAM), the same ids MLB uses.
+// We pull TWO leaderboards and merge them by player_id:
+//   expected_statistics -> xwOBA, xBA, xSLG, actual wOBA, K%, BB%
+//   exit_velocity_barrels -> barrel%, hard-hit%, avg exit velocity
+// Field names on Savant's JSON vary, so we read each metric tolerantly by
+// trying several possible keys.
 async function getStatcastMap() {
   const key = `statcast:${todayStr()}`;
   const cached = getCached(key);
   if (cached) return cached;
 
-  const url = `${SAVANT}/leaderboard/expected_statistics?type=batter&year=${SEASON}&position=&team=&filterType=bip&min=1&csv=false`;
+  // pick first key that exists on the row
+  const pick = (row, keys) => {
+    for (const k of keys) {
+      if (row[k] !== undefined && row[k] !== null && row[k] !== "") return num(row[k]);
+    }
+    return null;
+  };
+
   let map = {};
   try {
-    const rows = await fetchJson(url);
+    const expUrl = `${SAVANT}/leaderboard/expected_statistics?type=batter&year=${SEASON}&position=&team=&filterType=bip&min=q&csv=false`;
+    const rows = await fetchJson(expUrl);
     for (const row of rows) {
       const id = Number(row.player_id);
       if (!id) continue;
       map[id] = {
-        xwoba: num(row.est_woba),
-        xba: num(row.est_ba),
-        xslg: num(row.est_slg),
-        woba: num(row.woba),          // actual wOBA — powers the over/under delta
-        barrel: num(row.brl_percent),
-        hardhit: num(row.hard_hit_percent),
-        ev: num(row.avg_hit_speed),
-        k: num(row.k_percent),
-        bb: num(row.bb_percent),
+        xwoba: pick(row, ["est_woba", "xwoba", "est_woba_formatted"]),
+        xba:   pick(row, ["est_ba", "xba", "est_ba_formatted"]),
+        xslg:  pick(row, ["est_slg", "xslg", "est_slg_formatted"]),
+        woba:  pick(row, ["woba"]),
+        k:     pick(row, ["k_percent", "strikeout_percent"]),
+        bb:    pick(row, ["bb_percent", "walk_percent"]),
+        barrel: null, hardhit: null, ev: null, // filled from the EV leaderboard below
       };
     }
   } catch (e) {
-    console.warn("Statcast fetch failed:", e.message);
+    console.warn("Statcast expected_statistics fetch failed:", e.message);
   }
-  // cache until end of day (or 6h, whichever is sooner) so a bad fetch retries
+
+  // Merge in quality-of-contact from the exit-velocity/barrels leaderboard.
+  try {
+    const evUrl = `${SAVANT}/leaderboard/exit_velocity_barrels?type=batter&year=${SEASON}&min=q&csv=false`;
+    const evRows = await fetchJson(evUrl);
+    for (const row of evRows) {
+      const id = Number(row.player_id);
+      if (!id) continue;
+      if (!map[id]) map[id] = { xwoba:null, xba:null, xslg:null, woba:null, k:null, bb:null };
+      map[id].barrel  = pick(row, ["brl_percent", "barrel_batted_rate", "barrels_per_bbe_percent"]);
+      map[id].hardhit = pick(row, ["hard_hit_percent", "ev95percent", "hard_hit_rate"]);
+      map[id].ev      = pick(row, ["avg_hit_speed", "avg_hit_speed_mph", "avg_best_speed", "exit_velocity_avg"]);
+    }
+  } catch (e) {
+    console.warn("Statcast exit_velocity fetch failed:", e.message);
+  }
+
   setCached(key, map, 6 * 60 * 60 * 1000);
   return map;
 }
