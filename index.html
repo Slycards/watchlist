@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Watchlist</title>
+<style>
+  :root {
+    --bg:#eef1f5; --panel:#ffffff; --panel2:#f4f6f9; --line:#e3e7ee;
+    --accent:#2f6fd8; --accentDim:#dbe6f9;
+    --text:#1c2536; --dim:#6b7789; --faint:#9aa3b2; --live:#1a9d6a;
+    --gold:#b08628;
+    --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sys); -webkit-font-smoothing:antialiased; }
+  .mono { font-family:var(--sys); font-variant-numeric:tabular-nums; }
+  .disp { font-family:var(--sys); font-weight:800; letter-spacing:-0.02em; }
+  .wrap { max-width:1100px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:28px; margin:0; font-weight:800; letter-spacing:-0.02em; }
+  input { width:100%; background:var(--panel); border:1px solid var(--line); color:var(--text);
+          padding:12px 96px 12px 14px; font-size:14px; border-radius:10px; outline:none; font-family:var(--sys);
+          box-shadow:0 1px 2px rgba(28,37,54,0.04); }
+  input::placeholder { color:var(--faint); }
+  input:focus { border-color:var(--accent); }
+  button { cursor:pointer; font-family:var(--sys); }
+  .searchBtn { position:absolute; right:5px; top:5px; bottom:5px; padding:0 16px; background:var(--accent);
+               color:#ffffff; border:none; border-radius:7px; font-weight:600; font-size:13px; }
+  .rrow:hover { background:var(--panel2); }
+  .tab { padding:8px 15px; font-size:13px; font-weight:600; border-radius:8px; border:1px solid var(--line);
+         background:var(--panel); color:var(--dim); display:inline-flex; align-items:center; gap:7px; }
+  .tab.on { border-color:var(--accent); background:#eaf1fc; color:var(--accent); }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); }
+  .pcard { background:var(--panel); border:1px solid transparent; border-radius:12px; padding:16px 16px 18px;
+           position:relative; transition:opacity .2s, box-shadow .18s; cursor:grab;
+           box-shadow:0 1px 3px rgba(28,37,54,0.05), 0 4px 14px rgba(28,37,54,0.05); }
+  .pcard:active { cursor:grabbing; }
+  .pcard.dragging { opacity:0.4; }
+  .pcard.prev { opacity:0.55; }
+  .pcard.drop-before::before, .pcard.drop-after::after {
+    content:""; position:absolute; top:6px; bottom:6px; width:2px; border-radius:2px;
+    background:var(--accent); box-shadow:0 0 5px rgba(47,111,216,0.35);
+  }
+  .pcard.drop-before::before { left:-8px; }
+  .pcard.drop-after::after { right:-8px; }
+  .pcard:hover { box-shadow:0 2px 6px rgba(28,37,54,0.08), 0 8px 22px rgba(28,37,54,0.07); }
+  .x { position:absolute; top:12px; right:12px; background:none; border:none; color:var(--faint); font-size:18px; line-height:1; }
+  .tag { font-size:9px; font-weight:700; letter-spacing:0.06em; border-radius:4px; padding:2px 6px; }
+  .tag-live { color:#ffffff; background:var(--live); }
+  .tag-final { color:#ffffff; background:#6b8fc7; }
+  .tag-prev { color:var(--dim); background:var(--panel2); }
+  .tag-sched { color:var(--dim); background:var(--panel2); }
+  .stat { text-align:center; }
+  .stat .v { font-weight:800; line-height:1.1; letter-spacing:-0.01em; font-variant-numeric:tabular-nums; }
+  .stat .l { font-size:8.5px; letter-spacing:0.12em; color:var(--faint); margin-top:3px; text-transform:uppercase; }
+  .row { display:flex; justify-content:space-between; }
+  .divider { width:1px; background:var(--line); }
+  @keyframes livepulse { 0%{ box-shadow:0 0 0 0 rgba(26,157,106,0.45);} 70%{ box-shadow:0 0 0 6px rgba(26,157,106,0);} 100%{ box-shadow:0 0 0 0 rgba(26,157,106,0);} }
+  .livedot { animation: livepulse 1.6s infinite; }
+
+  /* ---- categories ---- */
+  .category-section { margin-bottom:26px; }
+  .cat-header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .cat-count { font-size:10px; color:var(--faint); background:var(--panel2); border-radius:10px; padding:1px 8px; }
+  .cat-edit-wrap { margin-left:auto; position:relative; }
+  .cat-edit-btn { background:none; border:none; color:#9ea6b2; font-size:12px; font-weight:600; padding:4px 6px;
+    border-radius:6px; cursor:pointer; }
+  .cat-edit-btn:hover { background:var(--panel2); color:#6b727e; }
+  .catmenu-dropdown { position:absolute; top:calc(100% + 4px); right:0; background:var(--panel); border:1px solid var(--line);
+    border-radius:9px; box-shadow:0 6px 20px rgba(28,37,54,0.14); z-index:30; overflow:hidden; min-width:140px; }
+  .catmenu-item { padding:9px 13px; font-size:12.5px; cursor:pointer; color:var(--text); }
+  .catmenu-item:hover { background:var(--panel2); }
+  .catmenu-item.danger { color:#c24444; }
+  .catmenu-item.disabled { color:var(--faint); cursor:default; pointer-events:none; }
+  .catmenu-divider { height:1px; background:var(--line); margin:4px 0; }
+  .category-section.cat-droptarget .catgrid { background:#e4ecfb; border-radius:12px; outline:1.5px dashed var(--accent); outline-offset:6px; }
+  .empty-cat-hint { grid-column:1/-1; border:1.5px dashed var(--line); border-radius:10px; padding:22px; text-align:center; color:var(--faint); font-size:12px; }
+  .category-section { border-radius:12px; }
+  .addcat-chip { background:var(--panel); border:1.5px dashed var(--line); border-radius:10px; padding:9px 16px;
+    color:var(--faint); font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
+  .addcat-chip:hover { border-color:var(--accent); color:var(--accent); }
+  #newCatInput { max-width:220px; display:inline-block; }
+
+  @media (prefers-reduced-motion: reduce){ * { transition:none !important; } .livedot{ animation:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px;">
+    <div style="display:flex;align-items:center;gap:12px;border-left:3px solid var(--accent);padding-left:12px;">
+      <h1 class="disp">THE WATCHLIST</h1>
+    </div>
+    <span class="mono" id="statusLine" style="color:var(--faint);font-size:12px;">live · MLB Stats API</span>
+  </div>
+  <p style="color:var(--dim);font-size:13px;margin:0 0 22px;max-width:660px;">
+    Your prospect portfolio: rolling 7 / 15 / 30-game and season splits, plus live game lines and today's schedule.
+    Group players into your own categories and drag them wherever you like.
+  </p>
+
+  <div style="position:relative;margin-bottom:22px;max-width:460px;">
+    <input id="search" placeholder="Add a hitter — e.g. Junior Caminero" autocomplete="off" />
+    <button class="searchBtn" id="searchBtn">Search</button>
+    <div id="results" style="position:absolute;top:110%;left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;z-index:20;overflow:hidden;display:none;box-shadow:0 4px 20px rgba(28,37,54,0.1);"></div>
+  </div>
+
+  <div id="tabs" style="display:flex;gap:6px;margin-bottom:22px;flex-wrap:wrap;"></div>
+
+  <div id="empty" style="border:1px dashed var(--line);border-radius:12px;padding:48px 24px;text-align:center;color:var(--dim);">
+    <div class="disp" style="font-size:18px;color:var(--text);margin-bottom:6px;">No players yet.</div>
+    <div style="font-size:13px;">Search a name to start your watchlist. Try Caminero, James Wood, or Nick Kurtz.</div>
+  </div>
+
+  <div id="cards"></div>
+  <div id="addCatRow" style="margin-top:6px;"></div>
+</div>
+
+<script>
+const WINDOWS = [
+  { key:"live", label:"Today" }, { key:"d7", label:"7 Games" }, { key:"d15", label:"15 Games" },
+  { key:"d30", label:"30 Games" }, { key:"season", label:"Season" },
+];
+const POLL_MS = 25000;
+const LS_KEY_OLD = "sly_watchlist_ids";       // legacy key, migrated on first load
+const LS_PLAYERS = "sly_watchlist_players_v2"; // [{id, categoryId}]
+const LS_CATS = "sly_watchlist_categories_v2"; // [{id, name}]
+const UNCAT = "__uncat__";
+
+let win = "season";
+let players = [];            // {id,name,team,pos,categoryId}
+let categories = [];         // {id,name}
+let dataById = {};           // id -> {season,splits}
+let liveById = {};           // id -> live line
+let pollTimer = null;
+let dragPid = null;
+
+const fmt3 = (n) => (n==null||isNaN(n)?"—":Number(n).toFixed(3).replace(/^0/,""));
+const pct  = (n) => (n==null||isNaN(n)?"—":Number(n).toFixed(1)+"%");
+const mph  = (n) => (n==null||isNaN(n)?"—":Number(n).toFixed(1));
+
+// ---- persistence ----
+function saveState(){
+  try{
+    localStorage.setItem(LS_PLAYERS, JSON.stringify(players.map(p=>({id:p.id, categoryId:p.categoryId||null}))));
+    localStorage.setItem(LS_CATS, JSON.stringify(categories));
+  }catch(e){}
+}
+
+async function api(path){
+  const r = await fetch(path);
+  if(!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+// ---- search ----
+const searchEl = document.getElementById("search");
+const resultsEl = document.getElementById("results");
+let searchTimer=null;
+
+async function doSearch(q){
+  q=q.trim();
+  if(!q){ resultsEl.style.display="none"; return; }
+  try{
+    const people = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    if(!people.length){ resultsEl.style.display="none"; return; }
+    resultsEl.innerHTML = people.slice(0,10).map(p=>`
+      <div class="rrow" data-id="${p.id}" data-name="${esc(p.name)}" data-team="${esc(p.team)}" data-pos="${esc(p.pos)}"
+           style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;border-bottom:1px solid var(--line);">
+        <span style="font-size:14px;">${esc(p.name)}</span>
+        <span class="mono" style="font-size:12px;color:var(--dim);">${esc(p.pos)} · ${esc(p.team||"FA")}</span>
+      </div>`).join("");
+    resultsEl.style.display="block";
+    resultsEl.querySelectorAll(".rrow").forEach(el=>{
+      el.onclick=()=>addPlayer({ id:+el.dataset.id, name:el.dataset.name, team:el.dataset.team, pos:el.dataset.pos });
+    });
+  }catch(e){ resultsEl.style.display="none"; }
+}
+searchEl.addEventListener("input", e=>{ clearTimeout(searchTimer); searchTimer=setTimeout(()=>doSearch(e.target.value),300); });
+searchEl.addEventListener("keydown", e=>{ if(e.key==="Enter"){ clearTimeout(searchTimer); doSearch(e.target.value); }});
+document.getElementById("searchBtn").onclick=()=>doSearch(searchEl.value);
+
+async function addPlayer(p){
+  if(players.some(x=>x.id===p.id)) return;
+  p.categoryId = null; // lands in Uncategorized until sorted
+  players.push(p); saveState();
+  resultsEl.style.display="none"; searchEl.value="";
+  render();
+  try{ dataById[p.id] = await api(`/api/player/${p.id}`); }catch(e){}
+  if(win==="live") pollLive();
+  render();
+}
+function removePlayer(id){
+  players = players.filter(p=>p.id!==id);
+  delete dataById[id]; delete liveById[id];
+  saveState(); render();
+}
+
+// ---- live polling ----
+async function pollLive(){
+  if(!players.length){ return; }
+  try{
+    const ids = players.map(p=>p.id).join(",");
+    liveById = await api(`/api/live?ids=${ids}`);
+    document.getElementById("statusLine").textContent =
+      "live · updated " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  }catch(e){}
+  if(win==="live") render();
+}
+function startPolling(){ stopPolling(); pollLive(); pollTimer=setInterval(pollLive,POLL_MS); }
+function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+// ---- tabs ----
+function renderTabs(){
+  const t=document.getElementById("tabs");
+  const anyLive = Object.values(liveById).some(l=>l && l.state==="Live");
+  t.innerHTML = WINDOWS.map(w=>`
+    <button class="tab ${w.key===win?"on":""}" data-k="${w.key}">
+      ${w.key==="live"?`<span class="${anyLive?"livedot":""}" style="width:7px;height:7px;border-radius:99px;display:inline-block;background:${anyLive?"var(--accent)":"var(--faint)"};"></span>`:""}
+      ${w.label}
+    </button>`).join("");
+  t.querySelectorAll(".tab").forEach(b=>{
+    b.onclick=()=>{ win=b.dataset.k; if(win==="live") startPolling(); else stopPolling();
+      if(win!=="live") document.getElementById("statusLine").textContent="live · MLB Stats API";
+      render(); };
+  });
+}
+
+// ---- stat + card rendering ----
+function lineFor(p){
+  const d=dataById[p.id]; if(!d) return null;
+  if(win==="season") return d.season;
+  if(win==="d7") return d.splits?.d7;
+  if(win==="d15") return d.splits?.d15;
+  if(win==="d30") return d.splits?.d30;
+  return null;
+}
+function statBlock(label,value,big,accent){
+  return `<div class="stat"><div class="v" style="font-size:${big?22:15}px;color:${accent||"var(--text)"};">${value}</div><div class="l">${label}</div></div>`;
+}
+function cardHtml(p){
+  const d=dataById[p.id];
+  let body="", isPrev=false;
+  if(win==="live"){
+    const live=liveById[p.id];
+    if(live && live.state==="Preview"){
+      body=`<div style="display:flex;align-items:center;gap:8px;">
+        <span class="tag tag-sched">SCHED</span>
+        <span class="mono" style="font-size:12px;color:var(--dim);">${esc(live.matchup||"")} · ${esc(live.time||"")}</span></div>`;
+    } else if(live && (live.state==="Live" || live.state==="Final")){
+      const active=live.state==="Live";
+      const statusEl = active
+        ? `<span class="livedot" style="width:7px;height:7px;border-radius:99px;background:var(--accent);display:inline-block;"></span>
+           <span class="tag tag-live" style="margin-left:2px;">LIVE</span>
+           <span class="mono" style="font-size:11px;color:var(--dim);">${esc(live.inning)} · ${esc(live.opp||live.matchup||"")}</span>`
+        : `<span class="tag tag-final">FINAL</span>
+           <span class="mono" style="font-size:11px;color:var(--dim);">${esc(live.opp||live.matchup||"")}</span>`;
+      body=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">${statusEl}</div>
+        <div class="row" style="padding:4px 2px;">
+        ${statBlock("AB",live.line.ab)}${statBlock("R",live.line.r)}${statBlock("H",live.line.h)}
+        ${statBlock("HR",live.line.hr)}${statBlock("RBI",live.line.rbi)}${statBlock("SB",live.line.sb??0)}</div>
+        ${live.summary?`<div class="mono" style="margin-top:12px;font-size:11px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px;">${esc(live.summary)}</div>`:""}`;
+    } else {
+      const lg = d && d.lastGame;
+      if(lg && lg.line){
+        isPrev=true;
+        body=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span class="tag tag-prev">PREV</span>
+          <span class="mono" style="font-size:11px;color:var(--dim);">${esc(fmtGameDate(lg.date))}${lg.opp?" · "+esc(lg.opp):""}</span></div>
+          <div class="row" style="padding:4px 2px;">
+          ${statBlock("AB",lg.line.ab)}${statBlock("R",lg.line.r)}${statBlock("H",lg.line.h)}
+          ${statBlock("HR",lg.line.hr)}${statBlock("RBI",lg.line.rbi)}${statBlock("SB",lg.line.sb??0)}</div>`;
+      } else {
+        body=`<div style="color:var(--faint);font-size:13px;padding:8px 0;">No games yet.</div>`;
+      }
+    }
+  } else {
+    const line=lineFor(p);
+    if(!d){ body=`<div style="color:var(--faint);font-size:13px;">Loading…</div>`; }
+    else if(!line){ body=`<div style="color:var(--faint);font-size:13px;">No data for this window.</div>`; }
+    else {
+      const grey="var(--faint)";
+      body=`<div class="row" style="margin-bottom:14px;">
+        ${statBlock("AVG",fmt3(line.avg),true)}${statBlock("HR",line.hr,true)}
+        ${statBlock("RBI",line.rbi,true)}${statBlock("OPS",fmt3(line.ops),true,"var(--accent)")}</div>
+        <div class="row" style="border-top:1px solid var(--line);padding-top:12px;">
+        ${statBlock("G",line.games,false,grey)}${statBlock("AB",line.ab,false,grey)}${statBlock("R",line.r,false,grey)}
+        ${statBlock("H",line.h,false,grey)}${statBlock("SB",line.sb,false,grey)}${statBlock("OBP",fmt3(line.obp),false,grey)}
+        ${statBlock("SLG",fmt3(line.slg),false,grey)}</div>`;
+    }
+  }
+  const il = d && d.il;
+  const ilBadge = il ? `<span class="mono" style="display:inline-flex;align-items:center;gap:5px;margin-left:9px;font-size:9.5px;font-weight:700;color:#c24444;background:#fbe9e9;border-radius:4px;padding:2px 7px;vertical-align:middle;">${esc(il.label)}</span>` : "";
+  return `<div class="pcard${isPrev?" prev":""}" draggable="true" data-pid="${p.id}">
+    <button class="x" data-rm="${p.id}" aria-label="Remove">×</button>
+    <div style="margin-bottom:14px;">
+      <div class="disp" style="font-size:17px;color:var(--text);">${esc(p.name)}${ilBadge}</div>
+      <div class="mono" style="font-size:11px;color:var(--faint);margin-top:2px;">${esc(p.pos||"")}${p.team?" · "+esc(p.team):""}</div>
+    </div>
+    ${body}
+  </div>`;
+}
+
+// ---- category sections ----
+function categoryOf(p){ return p.categoryId || UNCAT; }
+
+function sectionHtml(sec, list){
+  const cardsHtml = list.length
+    ? list.map(cardHtml).join("")
+    : `<div class="empty-cat-hint">Drag players here</div>`;
+  const editBtn = sec.custom
+    ? `<div class="cat-edit-wrap">
+         <button class="cat-edit-btn" data-catid="${sec.id}" aria-label="Edit category">Edit</button>
+       </div>`
+    : `<div></div>`;
+  return `<div class="category-section" data-cat="${sec.id}">
+    <div class="cat-header">
+      <span class="disp" style="font-size:16px;">${esc(sec.name)}</span>
+      <span class="cat-count mono">${list.length}</span>
+      ${editBtn}
+    </div>
+    <div class="grid catgrid" data-cat="${sec.id}">${cardsHtml}</div>
+  </div>`;
+}
+
+function render(){
+  renderTabs();
+  document.getElementById("empty").style.display = players.length?"none":"block";
+  const container = document.getElementById("cards");
+
+  const sections = categories.map(c=>({ id:c.id, name:c.name, custom:true }));
+  sections.push({ id:UNCAT, name:"Uncategorized", custom:false });
+
+  container.innerHTML = sections.map(sec=>{
+    const list = players.filter(p=>categoryOf(p)===sec.id);
+    if(sec.id===UNCAT && list.length===0) return "";
+    return sectionHtml(sec, list);
+  }).join("");
+
+  container.querySelectorAll("[data-rm]").forEach(b=> b.onclick=(e)=>{ e.stopPropagation(); removePlayer(+b.dataset.rm); });
+  wireDragDrop();
+  wireCategoryMenus();
+}
+
+// ---- drag and drop (within + across categories) ----
+function reorder(dragId, targetId, before, targetCatId){
+  const from=players.findIndex(p=>p.id===dragId);
+  if(from<0) return;
+  const [moved]=players.splice(from,1);
+  moved.categoryId = (targetCatId===UNCAT) ? null : targetCatId;
+  if(targetId==null){
+    players.push(moved);
+  } else {
+    let to=players.findIndex(p=>p.id===targetId);
+    if(to<0){ players.push(moved); }
+    else { if(!before) to+=1; players.splice(to,0,moved); }
+  }
+  saveState();
+  flipRender();
+}
+
+// FLIP animation: record positions, re-render, animate cards AND sections from old→new spot.
+function flipRender(){
+  const c=document.getElementById("cards");
+  const first=new Map();
+  c.querySelectorAll(".pcard").forEach(el=> first.set("p:"+el.dataset.pid, el.getBoundingClientRect()));
+  c.querySelectorAll(".category-section").forEach(el=> first.set("c:"+el.dataset.cat, el.getBoundingClientRect()));
+  render();
+  const last=new Map();
+  c.querySelectorAll(".pcard").forEach(el=> last.set("p:"+el.dataset.pid, el.getBoundingClientRect()));
+  c.querySelectorAll(".category-section").forEach(el=> last.set("c:"+el.dataset.cat, el.getBoundingClientRect()));
+  function animate(el, key){
+    const f=first.get(key), l=last.get(key);
+    if(!f||!l) return;
+    const dx=f.left-l.left, dy=f.top-l.top;
+    if(dx===0&&dy===0) return;
+    el.style.transform=`translate(${dx}px,${dy}px)`;
+    el.style.transition="none";
+    requestAnimationFrame(()=>{
+      el.style.transition="transform .28s cubic-bezier(.2,.7,.3,1)";
+      el.style.transform="";
+    });
+  }
+  c.querySelectorAll(".pcard").forEach(el=> animate(el, "p:"+el.dataset.pid));
+  c.querySelectorAll(".category-section").forEach(el=> animate(el, "c:"+el.dataset.cat));
+}
+
+function wireDragDrop(){
+  document.querySelectorAll(".pcard").forEach(card=>{
+    card.addEventListener("dragstart",e=>{ dragPid=+card.dataset.pid; card.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
+    card.addEventListener("dragend",()=>{ card.classList.remove("dragging"); dragPid=null; clearDropCues(); });
+  });
+  document.querySelectorAll(".catgrid").forEach(grid=>{
+    grid.addEventListener("dragover", e=>{
+      e.preventDefault(); e.dataTransfer.dropEffect="move";
+      if(dragPid==null) return;
+      clearDropCues();
+      const card = e.target.closest(".pcard");
+      if(card && +card.dataset.pid !== dragPid){
+        const r=card.getBoundingClientRect();
+        const before = (e.clientX - r.left) < r.width/2;
+        card.classList.add(before?"drop-before":"drop-after");
+      } else {
+        const sec = grid.closest(".category-section");
+        if(sec) sec.classList.add("cat-droptarget");
+      }
+    });
+    grid.addEventListener("dragleave", e=>{
+      if(!grid.contains(e.relatedTarget)){
+        const sec = grid.closest(".category-section");
+        if(sec) sec.classList.remove("cat-droptarget");
+      }
+    });
+    grid.addEventListener("drop", e=>{
+      e.preventDefault();
+      if(dragPid==null){ clearDropCues(); return; }
+      const catId = grid.dataset.cat;
+      const card = e.target.closest(".pcard");
+      clearDropCues();
+      if(card && +card.dataset.pid !== dragPid){
+        const r=card.getBoundingClientRect();
+        const before = (e.clientX - r.left) < r.width/2;
+        reorder(dragPid, +card.dataset.pid, before, catId);
+      } else {
+        reorder(dragPid, null, true, catId);
+      }
+    });
+  });
+}
+function clearDropCues(){
+  document.querySelectorAll(".pcard.drop-before,.pcard.drop-after")
+    .forEach(el=> el.classList.remove("drop-before","drop-after"));
+  document.querySelectorAll(".category-section.cat-droptarget")
+    .forEach(el=> el.classList.remove("cat-droptarget"));
+}
+
+// ---- drag a whole category (header + all its players) above/below others ----
+// Uncategorized is never in the categories array, so it's never reordered —
+// it always renders last.
+function moveCategory(catId, dir){
+  const idx = categories.findIndex(c=>c.id===catId);
+  if(idx<0) return;
+  const newIdx = idx + dir;
+  if(newIdx<0 || newIdx>=categories.length) return;
+  [categories[idx], categories[newIdx]] = [categories[newIdx], categories[idx]];
+  saveState();
+  flipRender();
+}
+
+// ---- category create / rename / delete ----
+function newCatId(){ return "cat_" + Date.now() + "_" + Math.floor(Math.random()*1000); }
+
+function resetAddCatRow(){
+  const row = document.getElementById("addCatRow");
+  row.innerHTML = `<button id="addCatBtn" class="addcat-chip"><span style="font-size:15px;">+</span> Add Category</button>`;
+  document.getElementById("addCatBtn").onclick = startAddCategory;
+}
+function startAddCategory(){
+  const row = document.getElementById("addCatRow");
+  row.innerHTML = `<input id="newCatInput" placeholder="Category name" autocomplete="off" />`;
+  const inp = document.getElementById("newCatInput");
+  inp.focus();
+  let done=false;
+  function commit(){
+    if(done) return; done=true;
+    const name = inp.value.trim();
+    if(name){ categories.push({ id:newCatId(), name }); saveState(); render(); }
+    resetAddCatRow();
+  }
+  inp.addEventListener("keydown", e=>{
+    if(e.key==="Enter") commit();
+    else if(e.key==="Escape"){ done=true; resetAddCatRow(); }
+  });
+  inp.addEventListener("blur", commit);
+}
+resetAddCatRow();
+
+function closeAllCatMenus(){ document.querySelectorAll(".catmenu-dropdown").forEach(m=>m.remove()); }
+
+function wireCategoryMenus(){
+  document.querySelectorAll(".cat-edit-btn").forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      const already = btn.parentElement.querySelector(".catmenu-dropdown");
+      closeAllCatMenus();
+      if(already) return; // clicking again just closes it
+      const catId = btn.dataset.catid;
+      const idx = categories.findIndex(c=>c.id===catId);
+      const isFirst = idx<=0;
+      const isLast = idx>=categories.length-1;
+      const menu = document.createElement("div");
+      menu.className = "catmenu-dropdown";
+      menu.innerHTML = `
+        <div class="catmenu-item${isFirst?" disabled":""}" data-act="up">↑ Move up</div>
+        <div class="catmenu-item${isLast?" disabled":""}" data-act="down">↓ Move down</div>
+        <div class="catmenu-divider"></div>
+        <div class="catmenu-item" data-act="rename">Rename</div>
+        <div class="catmenu-item danger" data-act="delete">Delete</div>`;
+      btn.parentElement.appendChild(menu);
+
+      if(!isFirst) menu.querySelector('[data-act="up"]').onclick = (ev)=>{
+        ev.stopPropagation(); closeAllCatMenus(); moveCategory(catId, -1);
+      };
+      if(!isLast) menu.querySelector('[data-act="down"]').onclick = (ev)=>{
+        ev.stopPropagation(); closeAllCatMenus(); moveCategory(catId, 1);
+      };
+      menu.querySelector('[data-act="rename"]').onclick = (ev)=>{
+        ev.stopPropagation();
+        const cat = categories.find(c=>c.id===catId);
+        if(!cat) return;
+        const name = prompt("Rename category:", cat.name);
+        if(name && name.trim()){ cat.name = name.trim(); saveState(); render(); }
+        else closeAllCatMenus();
+      };
+      menu.querySelector('[data-act="delete"]').onclick = (ev)=>{
+        ev.stopPropagation();
+        const cat = categories.find(c=>c.id===catId);
+        if(!cat) return;
+        if(confirm(`Delete "${cat.name}"? Players inside will move to Uncategorized.`)){
+          categories = categories.filter(c=>c.id!==catId);
+          players.forEach(p=>{ if(p.categoryId===catId) p.categoryId=null; });
+          saveState(); render();
+        } else closeAllCatMenus();
+      };
+    };
+  });
+}
+// One permanent listener (not re-added on every render) closes any open menu
+// when clicking outside it.
+document.addEventListener("click", e=>{
+  if(!e.target.closest(".cat-edit-btn") && !e.target.closest(".catmenu-dropdown")) closeAllCatMenus();
+});
+
+function esc(s){ return String(s??"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function fmtGameDate(d){
+  if(!d) return "";
+  const parts=String(d).split("-");
+  if(parts.length!==3) return d;
+  const months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const mo=months[(+parts[1])-1]||"";
+  return mo+" "+(+parts[2]);
+}
+
+// ---- auto-scroll the page while dragging a card or category near the edges ----
+// A large trigger zone means the page starts scrolling well before the cursor
+// gets anywhere near the very top of the viewport — so you never need to chase
+// the edge, which is what was sending fast drags up into the browser's own tabs.
+let autoScrollTimer=null;
+document.addEventListener("dragover", e=>{
+  if(dragPid==null){ clearInterval(autoScrollTimer); return; }
+  const edge=180, vh=window.innerHeight;
+  const distTop=e.clientY, distBottom=vh-e.clientY;
+  clearInterval(autoScrollTimer);
+  if(distTop<edge){
+    const speed=(edge-distTop)/edge;
+    autoScrollTimer=setInterval(()=>{ window.scrollBy(0, -(4*speed+1)); }, 16);
+  } else if(distBottom<edge){
+    const speed=(edge-distBottom)/edge;
+    autoScrollTimer=setInterval(()=>{ window.scrollBy(0, 4*speed+1); }, 16);
+  }
+});
+document.addEventListener("drop", ()=> clearInterval(autoScrollTimer));
+document.addEventListener("dragend", ()=> clearInterval(autoScrollTimer));
+
+
+// ---- boot: restore categories + saved watchlist (with legacy migration), then hydrate ----
+(async function(){
+  render();
+
+  try{ categories = JSON.parse(localStorage.getItem(LS_CATS)||"[]"); }catch(e){ categories=[]; }
+
+  let saved=null;
+  try{ saved = JSON.parse(localStorage.getItem(LS_PLAYERS)||"null"); }catch(e){ saved=null; }
+  if(!saved){
+    // migrate from the old flat id-list format
+    try{
+      const oldIds = JSON.parse(localStorage.getItem(LS_KEY_OLD)||"[]");
+      saved = oldIds.map(id=>({ id, categoryId:null }));
+    }catch(e){ saved=[]; }
+  }
+
+  for(const rec of saved){
+    try{
+      const prof=await api(`/api/profile/${rec.id}`);
+      prof.categoryId = rec.categoryId || null;
+      players.push(prof);
+    }catch(e){ players.push({ id:rec.id, name:"#"+rec.id, team:"", pos:"", categoryId:rec.categoryId||null }); }
+  }
+  saveState(); // write in the new format going forward
+  render();
+
+  for(const p of players){
+    try{ dataById[p.id]=await api(`/api/player/${p.id}`); render(); }catch(e){}
+  }
+})();
+</script>
+</body>
+</html>
